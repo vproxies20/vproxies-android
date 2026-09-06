@@ -38,6 +38,11 @@ def main() -> None:
     )
     replace_once(
         client / "app/build.gradle.kts",
+        "minSdk = 23",
+        "minSdk = 24",
+    )
+    replace_once(
+        client / "app/build.gradle.kts",
         'base.archivesName.set("SFA-${versionName}")',
         'base.archivesName.set("VProxies-${versionName}")',
     )
