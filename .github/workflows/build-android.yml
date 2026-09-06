@@ -13,7 +13,8 @@ permissions:
   contents: read
 
 env:
-  SING_BOX_COMMIT: 60b504a1c74a33fe24872c8144c8f0b7d3d61b2a
+  # v1.13.20 is the release paired with the pinned Android client below.
+  SING_BOX_COMMIT: 56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778
 
 jobs:
   build-libbox:
@@ -37,7 +38,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26.7
+          go-version: 1.24.7
           cache-dependency-path: sing-box/go.sum
 
       - name: Set up Android NDK
@@ -97,7 +98,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26.7
+          go-version: 1.24.7
           cache-dependency-path: sing-box/go.sum
 
       - name: Set up Java 17
@@ -131,7 +132,9 @@ jobs:
       - name: Collect APK and source metadata
         run: |
           mkdir -p dist
-          cp sing-box/clients/android/app/build/outputs/apk/other/debug/*.apk dist/VProxies-0.1.0-universal-debug.apk
+          apk_path="$(find sing-box/clients/android/app/build/outputs/apk/other/debug -maxdepth 1 -name '*universal*.apk' -print -quit)"
+          test -n "$apk_path"
+          cp "$apk_path" dist/VProxies-0.1.0-universal-debug.apk
           cp README.md THIRD-PARTY-NOTICES.md dist/
           printf '%s\n' "$SING_BOX_COMMIT" > dist/SING_BOX_COMMIT.txt
 
