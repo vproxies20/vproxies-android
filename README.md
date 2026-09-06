@@ -29,6 +29,10 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Uses the VProxies mark and cyan/violet branding from `vproxies.app`.
 - Reports the real sing-box service state and startup errors in the VProxies screen.
 - Runs an in-tunnel DNS/HTTPS check after startup instead of silently showing a connected state.
+- Opens Android's native Always-on VPN settings, reports Always-on/Lockdown state and prevents an
+  ambiguous in-app disconnect while Android owns the Always-on lifecycle.
+- Checks GitHub Releases at startup and on demand, selects the correct device ABI, downloads over
+  the physical network, verifies GitHub's SHA-256 asset digest and opens the Android installer.
 - GitHub Actions builds separate ARM64, ARM32, x86_64 and x86 APKs from pinned upstream source.
 
 ## Build
@@ -41,6 +45,20 @@ Open **Actions → Build VProxies Android APK → Run workflow**. Download the c
 
 The workflow pins the sing-box v1.13.20 commit `56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778`, applies the files in
 `overlay/`, builds the official Android `libbox` AARs, then builds the rebranded APK.
+
+## Signed GitHub Releases
+
+In-place Android updates require every published APK to use the same private release key. Configure
+these GitHub Actions secrets before pushing a `v*` tag:
+
+- `VPROXIES_KEYSTORE_BASE64`
+- `VPROXIES_KEYSTORE_PASSWORD`
+- `VPROXIES_KEY_ALIAS`
+- `VPROXIES_KEY_PASSWORD`
+
+The workflow refuses to publish a tagged release when any signing secret is missing. A successful
+tag build publishes all four APKs to GitHub Releases; the in-app updater never uses expiring Actions
+artifacts.
 
 ## Licensing
 

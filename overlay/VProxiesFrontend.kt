@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -124,6 +126,15 @@ internal class VProxiesUiState {
     var statusError by mutableStateOf(false)
     var coreStatus by mutableStateOf(Status.Stopped)
     var connectedAt by mutableLongStateOf(0L)
+    var alwaysOnEnabled by mutableStateOf(false)
+    var alwaysOnStatus by mutableStateOf("Disabled")
+    var updateBusy by mutableStateOf(false)
+    var updateAvailable by mutableStateOf(false)
+    var updateVersion by mutableStateOf("")
+    var updateNotes by mutableStateOf("")
+    var updateStatus by mutableStateOf("Not checked")
+    var updateError by mutableStateOf(false)
+    var updateProgress by mutableStateOf(0)
 
     var gateways by mutableStateOf<List<String>>(emptyList())
     var selectedGateway by mutableStateOf(0)
@@ -162,6 +173,9 @@ internal data class VProxiesActions(
     val advanced: () -> Unit,
     val checkManual: () -> Unit,
     val connectManual: () -> Unit,
+    val alwaysOn: () -> Unit,
+    val checkUpdate: () -> Unit,
+    val installUpdate: () -> Unit,
 )
 
 @Composable
@@ -495,8 +509,36 @@ private fun SettingsScreen(state: VProxiesUiState, actions: VProxiesActions) {
 
         SectionTitle("Advanced")
         ElevatedPanel {
+            SecondaryButton("Always-on VPN · ${state.alwaysOnStatus}", Icons.Default.VpnKey, actions.alwaysOn)
+            Text(
+                "Android controls Always-on and Block connections without VPN.",
+                color = Muted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 36.dp, bottom = 10.dp),
+            )
+            SecondaryButton(
+                if (state.updateBusy) "Checking GitHub Releases…" else "Check for updates",
+                Icons.Default.SystemUpdate,
+                actions.checkUpdate,
+            )
+            Text(
+                state.updateStatus,
+                color = if (state.updateError) Danger else Muted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(start = 36.dp, bottom = 8.dp),
+            )
+            if (state.updateAvailable) {
+                if (state.updateNotes.isNotBlank()) {
+                    Text(state.updateNotes, color = White.copy(alpha = .82f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+                }
+                PrimaryButton(
+                    if (state.updateBusy && state.updateProgress > 0) "Downloading · ${state.updateProgress}%" else "Download and install ${state.updateVersion}",
+                    state.updateBusy,
+                    actions.installUpdate,
+                )
+            }
             SecondaryButton("Core & service settings", Icons.Default.Settings, actions.advanced)
-            Text("VProxies 0.4.2 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+            Text("VProxies 0.5.0 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
         }
         Spacer(Modifier.height(28.dp))
     }

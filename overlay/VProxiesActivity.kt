@@ -52,7 +52,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.4.2"
+private const val CLIENT_NAME = "VProxies Android 0.5.0"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -74,6 +74,9 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private var coreStatus = Status.Stopped
     private val ui = VProxiesUiState()
     private lateinit var secureStore: VProxiesSecureStore
+    private lateinit var updater: VProxiesUpdater
+    private var availableUpdate: VProxiesUpdate? = null
+    private var pendingUpdateApk: File? = null
 
     private lateinit var identityInput: EditText
     private lateinit var passwordInput: EditText
@@ -105,15 +108,37 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { requestVpnPermission() }
 
+    private val installPermission =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val apk = pendingUpdateApk
+            if (apk != null && updater.canRequestPackageInstalls()) {
+                startActivity(updater.installIntent(apk))
+            } else if (apk != null) {
+                ui.updateStatus = "Allow VProxies to install updates, then tap Install update again."
+                ui.updateError = true
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         api = ApiClient(getSystemService(ConnectivityManager::class.java))
         secureStore = VProxiesSecureStore(this)
+        updater = VProxiesUpdater(this)
         coreConnection = ServiceConnection(this, this)
         coreConnection.connect()
         title = "VProxies"
         buildInterface()
         restoreRememberedFields()
+        refreshAlwaysOnStatus()
+        lifecycleScope.launch {
+            delay(1_200)
+            checkForUpdates(manual = false)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::updater.isInitialized) refreshAlwaysOnStatus()
     }
 
     override fun onDestroy() {
@@ -283,7 +308,14 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                 VProxiesActions(
                     power = {
                         syncInputsFromFrontend()
-                        if (coreStatus == Status.Started || coreStatus == Status.Starting) stopCore() else connect()
+                        if (coreStatus == Status.Started || coreStatus == Status.Starting) {
+                            if (ui.alwaysOnEnabled) {
+                                setStatus("Disable Always-on VPN in Android settings before disconnecting.", true)
+                                openAlwaysOnSettings()
+                            } else {
+                                stopCore()
+                            }
+                        } else connect()
                     },
                     login = { syncInputsFromFrontend(); login() },
                     gateway = { position ->
@@ -304,6 +336,9 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                     advanced = { startActivity(Intent(this, MainActivity::class.java)) },
                     checkManual = { syncInputsFromFrontend(); checkManualProxy() },
                     connectManual = { syncInputsFromFrontend(); connectManual() },
+                    alwaysOn = { openAlwaysOnSettings() },
+                    checkUpdate = { checkForUpdates(manual = true) },
+                    installUpdate = { downloadAndInstallUpdate() },
                 ),
             )
         }
@@ -630,6 +665,97 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         credentialFile?.delete()
         credentialFile = null
         setStatus("Disconnect requested.")
+    }
+
+    private fun openAlwaysOnSettings() {
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS)) }
+            .onFailure { startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }
+    }
+
+    private fun refreshAlwaysOnStatus() {
+        val alwaysOnPackage = runCatching {
+            android.provider.Settings.Secure.getString(contentResolver, "always_on_vpn_app")
+        }.getOrNull()
+        val lockdown = runCatching {
+            android.provider.Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0) == 1
+        }.getOrDefault(false)
+        ui.alwaysOnEnabled = alwaysOnPackage == packageName
+        ui.alwaysOnStatus = when {
+            ui.alwaysOnEnabled && lockdown -> "Enabled · Block without VPN"
+            ui.alwaysOnEnabled -> "Enabled"
+            else -> "Disabled"
+        }
+    }
+
+    private fun checkForUpdates(manual: Boolean) {
+        if (ui.updateBusy) return
+        ui.updateBusy = true
+        ui.updateError = false
+        ui.updateStatus = "Checking GitHub Releases…"
+        lifecycleScope.launch {
+            runCatching { withContext(Dispatchers.IO) { updater.checkLatest() } }
+                .onSuccess { update ->
+                    if (VProxiesUpdater.isNewer(update.version, updater.currentVersion())) {
+                        availableUpdate = update
+                        ui.updateVersion = update.version
+                        ui.updateNotes = update.notes
+                        ui.updateAvailable = true
+                        ui.updateStatus = "VProxies ${update.version} is available for this device."
+                    } else {
+                        availableUpdate = null
+                        ui.updateAvailable = false
+                        ui.updateVersion = ""
+                        ui.updateNotes = ""
+                        ui.updateStatus = "VProxies is up to date (${updater.currentVersion()})."
+                    }
+                }
+                .onFailure { error ->
+                    ui.updateStatus = if (!manual && error.message?.contains("No VProxies release") == true) {
+                        "Updates will appear here when a GitHub Release is published."
+                    } else {
+                        error.message ?: "Unable to check for updates."
+                    }
+                    ui.updateError = manual
+                }
+            ui.updateBusy = false
+        }
+    }
+
+    private fun downloadAndInstallUpdate() {
+        val update = availableUpdate ?: run {
+            checkForUpdates(manual = true)
+            return
+        }
+        if (ui.updateBusy) return
+        ui.updateBusy = true
+        ui.updateError = false
+        ui.updateProgress = 0
+        ui.updateStatus = "Downloading VProxies ${update.version}…"
+        lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    updater.download(update) { progress ->
+                        runOnUiThread {
+                            ui.updateProgress = progress
+                            ui.updateStatus = "Downloading VProxies ${update.version} · $progress%"
+                        }
+                    }
+                }
+            }.onSuccess { apk ->
+                pendingUpdateApk = apk
+                ui.updateStatus = "Download verified. Opening Android installer…"
+                if (updater.canRequestPackageInstalls()) {
+                    startActivity(updater.installIntent(apk))
+                } else {
+                    ui.updateStatus = "Allow VProxies to install updates from this source."
+                    installPermission.launch(updater.installPermissionIntent())
+                }
+            }.onFailure { error ->
+                ui.updateError = true
+                ui.updateStatus = error.message ?: "Unable to download the update."
+            }
+            ui.updateBusy = false
+        }
     }
 
     private fun verifyTunnelInternet() {

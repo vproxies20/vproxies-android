@@ -32,6 +32,7 @@ def main() -> None:
     shutil.copy2(activity_src, activity_dst)
     shutil.copy2(overlay / "VProxiesFrontend.kt", activity_dst.parent / "VProxiesFrontend.kt")
     shutil.copy2(overlay / "VProxiesSecureStore.kt", activity_dst.parent / "VProxiesSecureStore.kt")
+    shutil.copy2(overlay / "VProxiesUpdater.kt", activity_dst.parent / "VProxiesUpdater.kt")
     picker_src = overlay / "VProxiesAppPickerActivity.kt"
     picker_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesAppPickerActivity.kt"
     shutil.copy2(picker_src, picker_dst)
@@ -89,7 +90,8 @@ def main() -> None:
         client / "app/src/main/AndroidManifest.xml",
         '<uses-permission android:name="android.permission.INTERNET" />',
         '<uses-permission android:name="android.permission.INTERNET" />\n'
-        '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+        '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
+        '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
     )
 
     for strings in (client / "app/src/main/res").glob("values*/strings.xml"):
@@ -101,7 +103,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=9\nVERSION_NAME=0.4.2\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=10\nVERSION_NAME=0.5.0\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 
