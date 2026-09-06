@@ -6,6 +6,9 @@ It connects directly to the selected source proxy through Android `VpnService` a
 
 ## Current prototype
 
+- Native Jetpack Compose interface with VProxies Brand Kit colors and logo.
+- Three focused tabs: Dashboard, Logs and Settings, with one state-aware power control.
+- Live per-app upload/download rate and connection timer on the dashboard.
 - VProxies account sign-in through `https://api.vproxies.app/api/v1/`.
 - Loads assigned gateways and proxies.
 - Shows country, city, status, latency and endpoint visibility.
@@ -19,6 +22,8 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Uses direct IP-literal DoH by default to avoid Android local-resolver loops. DNS-through-proxy is
   intentionally off because it caused slow HTTPS/SOCKS5 startup and bootstrap failures earlier.
 - Never saves the account password or source-proxy credentials.
+- Optionally remembers account and manual-proxy passwords using device-bound AES-GCM keys from
+  Android Keystore. API-delivered source credentials remain ephemeral and are never remembered.
 - Binds account/config API requests to the physical Wi-Fi/mobile network so an existing VPN
   tunnel cannot trap API DNS during reconnect.
 - Uses the VProxies mark and cyan/violet branding from `vproxies.app`.

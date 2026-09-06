@@ -30,6 +30,8 @@ def main() -> None:
     activity_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesActivity.kt"
     activity_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(activity_src, activity_dst)
+    shutil.copy2(overlay / "VProxiesFrontend.kt", activity_dst.parent / "VProxiesFrontend.kt")
+    shutil.copy2(overlay / "VProxiesSecureStore.kt", activity_dst.parent / "VProxiesSecureStore.kt")
     picker_src = overlay / "VProxiesAppPickerActivity.kt"
     picker_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesAppPickerActivity.kt"
     shutil.copy2(picker_src, picker_dst)
@@ -99,7 +101,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=6\nVERSION_NAME=0.3.3\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=7\nVERSION_NAME=0.4.0\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 

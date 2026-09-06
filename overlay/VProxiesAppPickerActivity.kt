@@ -14,7 +14,7 @@ import io.nekohasekai.sfa.database.Settings
 class VProxiesAppPickerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = "Chọn ứng dụng"
+        title = "Choose applications"
         val selected = Settings.perAppProxyList.toMutableSet()
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -22,12 +22,12 @@ class VProxiesAppPickerActivity : AppCompatActivity() {
             setBackgroundColor(Color.rgb(7, 16, 29))
         }
         page.addView(TextView(this).apply {
-            text = "ỨNG DỤNG DÙNG PROXY"
+            text = "APPLICATIONS USING THE PROXY"
             textSize = 20f
             setTextColor(Color.rgb(25, 216, 232))
         })
         page.addView(TextView(this).apply {
-            text = "Chỉ các ứng dụng được đánh dấu mới đi qua VPN VProxies."
+            text = "Only selected applications will use the VProxies VPN."
             setTextColor(Color.rgb(145, 162, 185))
             setPadding(0, dp(6), 0, dp(14))
         })
@@ -50,7 +50,7 @@ class VProxiesAppPickerActivity : AppCompatActivity() {
             })
         }
         page.addView(Button(this).apply {
-            text = "Lưu ${selected.size} ứng dụng"
+            text = "Save ${selected.size} applications"
             isAllCaps = false
             gravity = Gravity.CENTER
             setOnClickListener {

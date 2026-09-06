@@ -24,6 +24,7 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
@@ -51,7 +52,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.3.3"
+private const val CLIENT_NAME = "VProxies Android 0.4.0"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -71,6 +72,8 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private var credentialFile: File? = null
     private lateinit var coreConnection: ServiceConnection
     private var coreStatus = Status.Stopped
+    private val ui = VProxiesUiState()
+    private lateinit var secureStore: VProxiesSecureStore
 
     private lateinit var identityInput: EditText
     private lateinit var passwordInput: EditText
@@ -96,7 +99,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
 
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) startCore() else setStatus("Bạn chưa cấp quyền VPN.", true)
+            if (result.resultCode == RESULT_OK) startCore() else setStatus("VPN permission was not granted.", true)
         }
 
     private val notificationPermission =
@@ -105,11 +108,12 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         api = ApiClient(getSystemService(ConnectivityManager::class.java))
+        secureStore = VProxiesSecureStore(this)
         coreConnection = ServiceConnection(this, this)
         coreConnection.connect()
         title = "VProxies"
         buildInterface()
-        identityInput.setText(getSharedPreferences(PREFS, MODE_PRIVATE).getString("identity", ""))
+        restoreRememberedFields()
     }
 
     override fun onDestroy() {
@@ -121,14 +125,19 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         val previous = coreStatus
         coreStatus = status
         runOnUiThread {
+            ui.coreStatus = status
             when (status) {
-                Status.Starting -> setStatus("Đang khởi động VPN…")
+                Status.Starting -> setStatus("Starting VPN…")
                 Status.Started -> {
-                    setStatus("VPN đã kết nối. Đang kiểm tra Internet…")
+                    if (previous != Status.Started) ui.connectedAt = System.currentTimeMillis()
+                    setStatus("VPN connected. Checking Internet access…")
                     verifyTunnelInternet()
                 }
-                Status.Stopping -> setStatus("Đang ngắt VPN…")
-                Status.Stopped -> if (previous != Status.Stopped) setStatus("VPN đã ngắt.")
+                Status.Stopping -> setStatus("Disconnecting VPN…")
+                Status.Stopped -> if (previous != Status.Stopped) {
+                    ui.connectedAt = 0L
+                    setStatus("VPN disconnected.")
+                }
             }
         }
     }
@@ -137,7 +146,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         runOnUiThread {
             credentialFile?.delete()
             credentialFile = null
-            setStatus("Lỗi VPN: ${message?.takeIf(String::isNotBlank) ?: type.name}", true)
+            setStatus("VPN error: ${message?.takeIf(String::isNotBlank) ?: type.name}", true)
         }
     }
 
@@ -268,32 +277,105 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
-        setContentView(scroll)
+        setContent {
+            VProxiesFrontend(
+                ui,
+                VProxiesActions(
+                    power = {
+                        syncInputsFromFrontend()
+                        if (coreStatus == Status.Started || coreStatus == Status.Starting) stopCore() else connect()
+                    },
+                    login = { syncInputsFromFrontend(); login() },
+                    gateway = { position ->
+                        ui.selectedGateway = position
+                        gatewaySpinner.setSelection(position)
+                        gateways.getOrNull(position)?.let { loadProxies(it.id) }
+                    },
+                    proxy = { position ->
+                        ui.selectedProxy = position
+                        proxySpinner.setSelection(position)
+                        updateProxySelection(position)
+                    },
+                    protocol = { position ->
+                        ui.selectedProtocol = position
+                        protocolSpinner.setSelection(position)
+                    },
+                    selectApps = { startActivity(Intent(this, VProxiesAppPickerActivity::class.java)) },
+                    advanced = { startActivity(Intent(this, MainActivity::class.java)) },
+                    checkManual = { syncInputsFromFrontend(); checkManualProxy() },
+                    connectManual = { syncInputsFromFrontend(); connectManual() },
+                ),
+            )
+        }
+    }
+
+    private fun restoreRememberedFields() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        ui.identity = prefs.getString("identity", "").orEmpty()
+        ui.password = secureStore.read("account_password").orEmpty()
+        ui.rememberAccount = ui.password.isNotEmpty()
+        val manual = secureStore.read("manual_proxy")?.let { runCatching { JSONObject(it) }.getOrNull() }
+        if (manual != null) {
+            ui.rememberManual = true
+            ui.manualProtocol = listOf("http", "https", "socks4", "socks5")
+                .indexOf(manual.optString("protocol")).coerceAtLeast(0)
+            ui.manualHost = manual.optString("host")
+            ui.manualPort = manual.optString("port")
+            ui.manualUsername = manual.optString("username")
+            ui.manualPassword = manual.optString("password")
+            ui.manualSni = manual.optString("sni")
+        }
+        syncInputsFromFrontend()
+    }
+
+    private fun syncInputsFromFrontend() {
+        identityInput.setText(ui.identity)
+        passwordInput.setText(ui.password)
+        routingSpinner.setSelection(ui.routingMode.coerceIn(0, 2))
+        dnsThroughProxyBox.isChecked = ui.dnsThroughProxy
+        preventDnsLeaksBox.isChecked = ui.preventDnsLeaks
+        gatewaySpinner.setSelection(ui.selectedGateway.coerceAtLeast(0))
+        proxySpinner.setSelection(ui.selectedProxy.coerceAtLeast(0))
+        protocolSpinner.setSelection(ui.selectedProtocol.coerceAtLeast(0))
+        manualProtocolSpinner.setSelection(ui.manualProtocol.coerceIn(0, 3))
+        manualHostInput.setText(ui.manualHost)
+        manualPortInput.setText(ui.manualPort)
+        manualUsernameInput.setText(ui.manualUsername)
+        manualPasswordInput.setText(ui.manualPassword)
+        manualSniInput.setText(ui.manualSni)
     }
 
     private fun login() {
         val identity = identityInput.text.toString().trim()
         val password = passwordInput.text.toString()
         if (identity.isBlank() || password.isBlank()) {
-            setStatus("Hãy nhập tên đăng nhập/email và mật khẩu.", true)
+            setStatus("Enter your username/email and password.", true)
             return
         }
-        busy(true, "Đang đăng nhập…")
+        busy(true, "Signing in…")
         lifecycleScope.launch {
             runCatching { withContext(Dispatchers.IO) { api.login(identity, password) } }
                 .onSuccess { login ->
-                    passwordInput.text.clear()
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString("identity", identity).apply()
-                    accountLabel.text = "${login.userName} · ${login.packageName.ifBlank { login.status }} · còn ${login.remainingDays} ngày"
+                    if (ui.rememberAccount) {
+                        secureStore.write("account_password", password)
+                    } else {
+                        secureStore.remove("account_password")
+                        passwordInput.text.clear()
+                        ui.password = ""
+                    }
+                    val summary = "${login.userName} · ${login.packageName.ifBlank { login.status }} · ${login.remainingDays} days remaining"
+                    accountLabel.text = summary
+                    ui.accountSummary = summary
                     if (!login.active) {
                         connectButton.isEnabled = false
-                        setStatus("Tài khoản chưa có gói sử dụng đang hoạt động.", true)
+                        setStatus("This account does not have an active entitlement.", true)
                     } else {
-                        setStatus("Đăng nhập thành công. Đang đồng bộ proxy…")
+                        setStatus("Signed in. Syncing proxies…")
                         loadGateways()
                     }
                 }
-                .onFailure { setStatus(it.message ?: "Đăng nhập thất bại.", true) }
+                .onFailure { setStatus(it.message ?: "Sign-in failed.", true) }
             busy(false)
         }
     }
@@ -305,25 +387,29 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                     gateways.clear()
                     gateways.addAll(items)
                     gatewaySpinner.adapter = adapter(items.map { it.display })
-                    if (items.isEmpty()) setStatus("Tài khoản chưa được cấp máy chủ proxy.", true)
+                    ui.gateways = items.map { it.display }
+                    ui.selectedGateway = 0
+                    if (items.isEmpty()) setStatus("No proxy gateway is assigned to this account.", true)
                 }
-                .onFailure { setStatus(it.message ?: "Không tải được máy chủ.", true) }
+                .onFailure { setStatus(it.message ?: "Unable to load gateways.", true) }
         }
     }
 
     private fun loadProxies(gatewayId: String) {
         lifecycleScope.launch {
-            setStatus("Đang tải proxy…")
+            setStatus("Loading proxies…")
             runCatching { withContext(Dispatchers.IO) { api.proxies(gatewayId) } }
                 .onSuccess { items ->
                     proxies.clear()
                     proxies.addAll(items)
                     proxySpinner.adapter = adapter(items.map { it.display })
+                    ui.proxies = items.map { it.display }
+                    ui.selectedProxy = 0
                     connectButton.isEnabled = false
-                    if (items.isEmpty()) setStatus("Máy chủ này chưa có proxy khả dụng.", true)
-                    else setStatus("Đã đồng bộ ${items.size} proxy.")
+                    if (items.isEmpty()) setStatus("This gateway has no available proxies.", true)
+                    else setStatus("Synced ${items.size} proxies.")
                 }
-                .onFailure { setStatus(it.message ?: "Không tải được proxy.", true) }
+                .onFailure { setStatus(it.message ?: "Unable to load proxies.", true) }
         }
     }
 
@@ -335,8 +421,12 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         protocolSpinner.adapter = adapter(supported.map { it.uppercase() })
         val primaryIndex = supported.indexOf(proxy.protocol.lowercase())
         if (primaryIndex >= 0) protocolSpinner.setSelection(primaryIndex)
-        val endpoint = if (proxy.showHostPort && proxy.host.isNotBlank()) "${proxy.host}:${proxy.port}" else "IP/port được ẩn theo chính sách"
-        proxyDetailLabel.text = "${proxy.location} · ${proxy.status.ifBlank { "Chưa xác định" }} · ${proxy.latency ?: "—"} ms\n$endpoint"
+        val endpoint = if (proxy.showHostPort && proxy.host.isNotBlank()) "${proxy.host}:${proxy.port}" else "IP/port hidden by policy"
+        val detail = "${proxy.location} · ${proxy.status.ifBlank { "Unknown" }} · ${proxy.latency ?: "—"} ms\n$endpoint"
+        proxyDetailLabel.text = detail
+        ui.protocols = supported.map { it.uppercase() }
+        ui.selectedProtocol = primaryIndex.coerceAtLeast(0)
+        ui.proxyDetail = detail
         connectButton.isEnabled = supported.isNotEmpty()
     }
 
@@ -344,21 +434,21 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         val gatewayPosition = gatewaySpinner.selectedItemPosition
         val proxyPosition = proxySpinner.selectedItemPosition
         if (gatewayPosition !in gateways.indices || proxyPosition !in proxies.indices) {
-            setStatus("Hãy chọn proxy trước khi kết nối.", true)
+            setStatus("Select a proxy before connecting.", true)
             return
         }
         val gateway = gateways[gatewayPosition]
         val proxy = proxies[proxyPosition]
         val protocol = protocolSpinner.selectedItem?.toString()?.lowercase() ?: proxy.protocol.lowercase()
         val routingMode = prepareRouting() ?: return
-        busy(true, "Đang xin thông tin kết nối…")
+        busy(true, "Requesting connection details…")
         lifecycleScope.launch {
             runCatching {
                 val entitlement = withContext(Dispatchers.IO) { api.entitlement() }
-                if (!entitlement.active) error("Tài khoản không có quyền sử dụng đang hiệu lực (${entitlement.status}).")
+                if (!entitlement.active) error("This account has no active entitlement (${entitlement.status}).")
                 val connection = withContext(Dispatchers.IO) { api.connection(gateway.id, proxy.id) }
                 if (connection.protocols.isNotEmpty() && protocol !in connection.protocols.map { it.lowercase() }) {
-                    error("Proxy không còn hỗ trợ giao thức ${protocol.uppercase()}.")
+                    error("This proxy no longer supports ${protocol.uppercase()}.")
                 }
                 val config = buildConfig(
                     connection,
@@ -373,7 +463,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
             }.onSuccess {
                 requestNotificationThenVpn()
             }.onFailure {
-                setStatus(it.message ?: "Không thể chuẩn bị kết nối.", true)
+                setStatus(it.message ?: "Unable to prepare the connection.", true)
             }
             busy(false)
         }
@@ -382,7 +472,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private fun prepareRouting(): Int? {
         val routingMode = routingSpinner.selectedItemPosition.coerceIn(0, 2)
         if (routingMode == 2 && Settings.perAppProxyList.isEmpty()) {
-            setStatus("Hãy chọn ít nhất một ứng dụng cho chế độ này.", true)
+            setStatus("Select at least one application for this routing mode.", true)
             return null
         }
         Settings.perAppProxyEnabled = routingMode == 2
@@ -393,7 +483,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private fun manualConnection(): ConnectionInfo {
         val host = manualHostInput.text.toString().trim()
         val port = manualPortInput.text.toString().toIntOrNull() ?: 0
-        if (host.isBlank() || port !in 1..65535) error("Hãy nhập host/IP và port proxy hợp lệ.")
+        if (host.isBlank() || port !in 1..65535) error("Enter a valid proxy host/IP and port.")
         return ConnectionInfo(
             host = host,
             port = port,
@@ -407,19 +497,19 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
 
     private fun checkManualProxy() {
         val connection = runCatching { manualConnection() }.getOrElse {
-            setStatus(it.message ?: "Thông tin proxy không hợp lệ.", true)
+            setStatus(it.message ?: "Invalid proxy details.", true)
             return
         }
-        busy(true, "Đang kiểm tra cổng proxy…")
+        busy(true, "Checking proxy port…")
         lifecycleScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
                     Socket().use { it.connect(InetSocketAddress(connection.host, connection.port), 8_000) }
                 }
             }.onSuccess {
-                setStatus("Đã kết nối được tới cổng proxy. Username/password sẽ được kiểm tra khi bật VPN.")
+                setStatus("Proxy port is reachable. Credentials will be verified when the VPN starts.")
             }.onFailure {
-                setStatus("Không kết nối được tới proxy: ${it.message ?: "hết thời gian chờ"}", true)
+                setStatus("Unable to reach proxy: ${it.message ?: "connection timed out"}", true)
             }
             busy(false)
         }
@@ -427,11 +517,21 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
 
     private fun connectManual() {
         val connection = runCatching { manualConnection() }.getOrElse {
-            setStatus(it.message ?: "Thông tin proxy không hợp lệ.", true)
+            setStatus(it.message ?: "Invalid proxy details.", true)
             return
         }
         val routingMode = prepareRouting() ?: return
-        busy(true, "Đang chuẩn bị proxy riêng…")
+        if (ui.rememberManual) {
+            secureStore.write(
+                "manual_proxy",
+                JSONObject().put("protocol", connection.protocol).put("host", connection.host)
+                    .put("port", connection.port.toString()).put("username", connection.username)
+                    .put("password", connection.password).put("sni", manualSniInput.text.toString().trim()).toString(),
+            )
+        } else {
+            secureStore.remove("manual_proxy")
+        }
+        busy(true, "Preparing manual proxy…")
         lifecycleScope.launch {
             runCatching {
                 val config = buildConfig(
@@ -443,13 +543,16 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                     upstreamTls = connection.protocol == "https",
                     tlsServerName = manualSniInput.text.toString().trim(),
                 )
-                installProfile("Proxy riêng · ${connection.protocol.uppercase()}", config)
+                installProfile("Manual proxy · ${connection.protocol.uppercase()}", config)
                 pendingConfig = config
             }.onSuccess {
-                manualPasswordInput.text.clear()
+                if (!ui.rememberManual) {
+                    manualPasswordInput.text.clear()
+                    ui.manualPassword = ""
+                }
                 requestNotificationThenVpn()
             }
-                .onFailure { setStatus(it.message ?: "Không thể chuẩn bị proxy riêng.", true) }
+                .onFailure { setStatus(it.message ?: "Unable to prepare the manual proxy.", true) }
             busy(false)
         }
     }
@@ -498,7 +601,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         if (pendingConfig == null) return
         BoxService.start()
         pendingConfig = null
-        setStatus("Đang khởi động VPN…")
+        setStatus("Starting VPN…")
     }
 
     private fun stopCore() {
@@ -506,7 +609,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         pendingConfig = null
         credentialFile?.delete()
         credentialFile = null
-        setStatus("Đã yêu cầu ngắt kết nối.")
+        setStatus("Disconnect requested.")
     }
 
     private fun verifyTunnelInternet() {
@@ -528,15 +631,15 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
             }
             if (coreStatus != Status.Started) return@launch
             result.onSuccess { status ->
-                if (status in 200..399) setStatus("VPN và Internet đang hoạt động.")
-                else setStatus("VPN đã bật nhưng kiểm tra Internet trả HTTP $status.", true)
+                if (status in 200..399) setStatus("VPN and Internet access are working.")
+                else setStatus("VPN is active, but the Internet check returned HTTP $status.", true)
             }.onFailure { error ->
                 val reason = if (error is UnknownHostException) {
-                    "DNS trong VPN chưa phân giải được tên miền."
+                    "VPN DNS could not resolve the test hostname."
                 } else {
-                    error.message ?: "không nhận được phản hồi"
+                    error.message ?: "no response"
                 }
-                setStatus("VPN đã bật nhưng chưa truy cập được Internet: $reason", true)
+                setStatus("VPN is active but Internet access failed: $reason", true)
             }
         }
     }
@@ -645,6 +748,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     }
 
     private fun busy(value: Boolean, message: String? = null) {
+        ui.busy = value
         loginButton.isEnabled = !value
         connectButton.isEnabled = if (value) false else {
             val selected = proxies.getOrNull(proxySpinner.selectedItemPosition)
@@ -657,6 +761,9 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     private fun setStatus(message: String, error: Boolean = false) {
         statusLabel.text = message
         statusLabel.setTextColor(if (error) Color.rgb(255, 128, 142) else Color.rgb(126, 231, 166))
+        ui.statusMessage = message
+        ui.statusError = error
+        ui.addLog(if (error) "ERROR" else "INFO", message)
     }
 
     private fun adapter(values: List<String>) =
@@ -706,7 +813,7 @@ private data class ProxyItem(
     val host: String,
     val port: Int,
 ) {
-    val location: String get() = listOf(city, country).filter(String::isNotBlank).joinToString(", ").ifBlank { "Chưa xác định" }
+    val location: String get() = listOf(city, country).filter(String::isNotBlank).joinToString(", ").ifBlank { "Unknown location" }
     val display: String get() = "${name.ifBlank { "Proxy #$id" }} · $location"
 }
 
@@ -749,7 +856,7 @@ private class ApiClient(private val connectivity: ConnectivityManager) {
         )
         val loginData = root.optJSONObject("data") ?: root
         token = root.string("access_token", "token").ifBlank { loginData.string("access_token", "token") }
-        if (token.isBlank()) error("Phản hồi đăng nhập không có access token.")
+        if (token.isBlank()) error("The sign-in response did not include an access token.")
         val user = root.optJSONObject("user") ?: loginData.optJSONObject("user")
         val entitlement = entitlement()
         return LoginInfo(
@@ -805,13 +912,13 @@ private class ApiClient(private val connectivity: ConnectivityManager) {
             JSONObject().put("gateway_id", gatewayId).put("proxy_id", proxyId),
         )
         val root = response.optJSONObject("data") ?: response
-        val envelope = root.optJSONObject("connection") ?: error("Phản hồi thiếu connection envelope.")
-        if (!envelope.string("mode").equals("direct", true)) error("API không trả về chế độ kết nối direct.")
+        val envelope = root.optJSONObject("connection") ?: error("The response is missing its connection envelope.")
+        if (!envelope.string("mode").equals("direct", true)) error("The API did not return direct connection mode.")
         val returnedGateway = envelope.scalar("gateway_id").ifBlank { root.scalar("gateway_id") }
-        if (returnedGateway.isNotBlank() && returnedGateway != gatewayId) error("API trả về sai gateway_id.")
+        if (returnedGateway.isNotBlank() && returnedGateway != gatewayId) error("The API returned a mismatched gateway_id.")
         val returnedProxy = envelope.long("proxy_id")
-        if (returnedProxy > 0 && returnedProxy != proxyId) error("API trả về sai proxy_id.")
-        val source = envelope.optJSONObject("connection") ?: error("Phản hồi thiếu thông tin proxy nguồn.")
+        if (returnedProxy > 0 && returnedProxy != proxyId) error("The API returned a mismatched proxy_id.")
+        val source = envelope.optJSONObject("connection") ?: error("The response is missing source proxy details.")
         val sourceProtocols = source.strings("protocols").map(String::lowercase).distinct()
         return ConnectionInfo(
             host = source.string("host"), port = source.long("port").toInt(),
@@ -821,15 +928,15 @@ private class ApiClient(private val connectivity: ConnectivityManager) {
                 when (it) { is Number -> it.toLong(); is String -> it.toLongOrNull(); else -> null }
             },
         ).also {
-            if (it.host.isBlank() || it.port !in 1..65535) error("Proxy nguồn không có host/port hợp lệ.")
+            if (it.host.isBlank() || it.port !in 1..65535) error("The source proxy has an invalid host or port.")
             if (it.expiresAt != null && it.expiresAt <= System.currentTimeMillis() / 1000L) {
-                error("Cấu hình proxy đã hết hạn; hãy yêu cầu lại.")
+                error("The proxy configuration has expired. Request it again.")
             }
         }
     }
 
     private fun request(path: String, method: String = "GET", body: JSONObject? = null, authorize: Boolean = true): JSONObject {
-        if (authorize && token.isBlank()) error("Bạn cần đăng nhập trước.")
+        if (authorize && token.isBlank()) error("Sign in first.")
         val url = URL("$API_BASE_URL${path.trimStart('/')}")
         val physicalNetwork = connectivity.allNetworks.firstOrNull { network ->
             connectivity.getNetworkCapabilities(network)?.let { capabilities ->
@@ -859,19 +966,19 @@ private class ApiClient(private val connectivity: ConnectivityManager) {
                 val code = errorRoot.string("code", "error")
                 val message = errorRoot.string("message")
                 val friendly = when {
-                    status == 401 -> "Phiên đăng nhập không hợp lệ hoặc đã hết hạn."
-                    status == 403 && code == "entitlement_required" -> "Tài khoản không có quyền sử dụng đang hiệu lực."
-                    status == 422 && code in setOf("invalid_gateway", "gateway_selection_required") -> "Máy chủ proxy không hợp lệ; hãy tải lại danh sách máy chủ."
-                    status == 422 && code == "invalid_proxy" -> "Proxy được chọn không hợp lệ."
-                    status == 502 && code == "proxy_server_unavailable" -> "Máy chủ lưu proxy đang tạm thời không khả dụng."
-                    status == 503 && code == "gateway_registry_unavailable" -> "Danh sách máy chủ chưa sẵn sàng; hãy thử lại sau."
-                    else -> message.ifBlank { code.ifBlank { "Yêu cầu API thất bại." } }
+                    status == 401 -> "Your session is invalid or has expired."
+                    status == 403 && code == "entitlement_required" -> "This account has no active entitlement."
+                    status == 422 && code in setOf("invalid_gateway", "gateway_selection_required") -> "Invalid gateway. Refresh the gateway list."
+                    status == 422 && code == "invalid_proxy" -> "The selected proxy is invalid."
+                    status == 502 && code == "proxy_server_unavailable" -> "The proxy gateway is temporarily unavailable."
+                    status == 503 && code == "gateway_registry_unavailable" -> "The gateway registry is not ready. Try again later."
+                    else -> message.ifBlank { code.ifBlank { "API request failed." } }
                 }
                 error("API $status: $friendly")
             }
             return JSONObject(text)
         } catch (_: UnknownHostException) {
-            error("Không phân giải được api.vproxies.app. Hãy kiểm tra Wi-Fi/4G hoặc DNS riêng trên điện thoại rồi thử lại.")
+            error("Unable to resolve api.vproxies.app. Check Wi-Fi/mobile data and Private DNS, then try again.")
         } finally {
             connection.disconnect()
         }
