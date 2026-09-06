@@ -4,7 +4,7 @@
 
 - Core: https://github.com/SagerNet/sing-box
 - Android client: https://github.com/SagerNet/sing-box-for-android
-- Pinned core commit: `60b504a1c74a33fe24872c8144c8f0b7d3d61b2a`
+- Pinned core commit (v1.13.20): `56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778`
 - Pinned Android client commit: `af61098358a8141dea71f232b7eaebf4ccee8868`
 - License: GNU General Public License version 3 or later, plus the upstream naming restriction.
 
