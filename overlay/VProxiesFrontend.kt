@@ -496,7 +496,7 @@ private fun SettingsScreen(state: VProxiesUiState, actions: VProxiesActions) {
         SectionTitle("Advanced")
         ElevatedPanel {
             SecondaryButton("Core & service settings", Icons.Default.Settings, actions.advanced)
-            Text("VProxies 0.4.1 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+            Text("VProxies 0.4.2 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
         }
         Spacer(Modifier.height(28.dp))
     }
@@ -550,20 +550,27 @@ private fun VPasswordField(value: String, onValueChange: (String) -> Unit, label
 @Composable
 private fun VDropdown(label: String, values: List<String>, selected: Int, onSelected: (Int) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedTextField(
-            value = values.getOrNull(selected) ?: "No data", onValueChange = {}, readOnly = true,
-            label = { Text(label) },
-            trailingIcon = { Icon(Icons.Default.KeyboardArrowDown, null) },
-            modifier = Modifier.fillMaxWidth().clickable { if (values.isNotEmpty()) expanded = true },
-            enabled = false, colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                disabledTextColor = White, disabledBorderColor = Muted.copy(alpha = .55f),
-                disabledLabelColor = Muted, disabledTrailingIconColor = Muted,
-            ), shape = RoundedCornerShape(13.dp),
-        )
-        DropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(SurfaceHigh)) {
-            values.forEachIndexed { index, value ->
-                DropdownMenuItem(text = { Text(value, color = White) }, onClick = { onSelected(index); expanded = false })
+    Column {
+        Text(label, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp, bottom = 5.dp))
+        Box {
+            OutlinedButton(
+                onClick = { expanded = true },
+                enabled = values.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(13.dp),
+                border = BorderStroke(1.dp, if (values.isEmpty()) Muted.copy(alpha = .35f) else Muted.copy(alpha = .65f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = White, disabledContentColor = Muted),
+            ) {
+                Text(values.getOrNull(selected) ?: "No data", modifier = Modifier.weight(1f), color = if (values.isEmpty()) Muted else White)
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Open $label choices", tint = Muted)
+            }
+            DropdownMenu(expanded, { expanded = false }, modifier = Modifier.background(SurfaceHigh)) {
+                values.forEachIndexed { index, value ->
+                    DropdownMenuItem(
+                        text = { Text(value, color = White) },
+                        onClick = { onSelected(index); expanded = false },
+                    )
+                }
             }
         }
     }

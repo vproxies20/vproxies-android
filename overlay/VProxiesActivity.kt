@@ -52,7 +52,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.4.1"
+private const val CLIENT_NAME = "VProxies Android 0.4.2"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -419,8 +419,15 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                     ui.proxies = items.map { it.display }
                     ui.selectedProxy = 0
                     connectButton.isEnabled = false
-                    if (items.isEmpty()) setStatus("This gateway has no available proxies.", true)
-                    else setStatus("Synced ${items.size} proxies.")
+                    if (items.isEmpty()) {
+                        ui.protocols = emptyList()
+                        setStatus("This gateway has no available proxies.", true)
+                    } else {
+                        // The legacy Spinner is not attached after Compose setContent(),
+                        // so initialize the selected proxy and its protocols explicitly.
+                        updateProxySelection(0)
+                        setStatus("Synced ${items.size} proxies.")
+                    }
                 }
                 .onFailure { setStatus(it.message ?: "Unable to load proxies.", true) }
         }
