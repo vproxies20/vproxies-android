@@ -52,7 +52,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.4.0"
+private const val CLIENT_NAME = "VProxies Android 0.4.1"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -386,10 +386,23 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                 .onSuccess { items ->
                     gateways.clear()
                     gateways.addAll(items)
+                    proxies.clear()
                     gatewaySpinner.adapter = adapter(items.map { it.display })
+                    proxySpinner.adapter = adapter(emptyList())
                     ui.gateways = items.map { it.display }
                     ui.selectedGateway = 0
-                    if (items.isEmpty()) setStatus("No proxy gateway is assigned to this account.", true)
+                    ui.proxies = emptyList()
+                    ui.selectedProxy = 0
+                    ui.protocols = emptyList()
+                    connectButton.isEnabled = false
+                    if (items.isEmpty()) {
+                        setStatus("No proxy gateway is assigned to this account.", true)
+                    } else {
+                        // Compose replaced the legacy Spinner view tree, so setting the
+                        // hidden Spinner adapter does not reliably emit onItemSelected.
+                        // Start the documented /gateways -> /proxies flow explicitly.
+                        loadProxies(items.first().id)
+                    }
                 }
                 .onFailure { setStatus(it.message ?: "Unable to load gateways.", true) }
         }

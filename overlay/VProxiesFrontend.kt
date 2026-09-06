@@ -496,7 +496,7 @@ private fun SettingsScreen(state: VProxiesUiState, actions: VProxiesActions) {
         SectionTitle("Advanced")
         ElevatedPanel {
             SecondaryButton("Core & service settings", Icons.Default.Settings, actions.advanced)
-            Text("VProxies 0.4.0 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+            Text("VProxies 0.4.1 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
         }
         Spacer(Modifier.height(28.dp))
     }
