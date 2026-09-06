@@ -99,7 +99,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=5\nVERSION_NAME=0.3.2\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=6\nVERSION_NAME=0.3.3\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 

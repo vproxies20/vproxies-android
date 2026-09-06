@@ -51,7 +51,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.3.2"
+private const val CLIENT_NAME = "VProxies Android 0.3.3"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -594,7 +594,11 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
             )
         }
         val routeRules = JSONArray()
-            .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+            .put(JSONObject().put("action", "sniff"))
+            // Match the actual DNS destination port. A protocol-only rule depends
+            // on successful sniffing and previously allowed port 53 traffic to fall
+            // through to the SOCKS/HTTP outbound, causing DNS_PROBE_FINISHED_NO_INTERNET.
+            .put(JSONObject().put("port", 53).put("action", "hijack-dns"))
             // Android Private DNS uses encrypted DNS-over-TLS on TCP/853. Many
             // HTTP/SOCKS proxies block that port, so preserve the user's system
             // resolver by routing DoT directly instead of trapping it in the proxy.
@@ -620,6 +624,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                 "dns",
                 JSONObject()
                     .put("servers", dnsServers)
+                    .put("strategy", "ipv4_only")
                     .put("final", if (dnsThroughProxy) "dns-proxy" else "dns-direct"),
             )
             .put(

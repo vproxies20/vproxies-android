@@ -12,7 +12,7 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Lets the user choose HTTP, HTTPS, SOCKS4 or SOCKS5 when advertised by the selected proxy.
 - Includes a separate manual-proxy connection form with optional credentials and HTTPS SNI.
 - Supports full-system, web-rules-only and selected-app routing modes.
-- Offers DNS-through-proxy (off by default), DNS hijacking and strict routing to prevent leaks.
+- Offers DNS-through-proxy (off by default), explicit TCP/UDP port 53 hijacking and strict routing.
 - Preserves Android Private DNS by routing encrypted DNS-over-TLS (TCP/853) directly.
 - Requests short-lived direct connection data from `/connections`.
 - Creates an Android TUN with `VpnService`; Wintun is not included because it is Windows-only.
