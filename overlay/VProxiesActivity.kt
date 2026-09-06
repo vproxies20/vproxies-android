@@ -50,7 +50,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.3.0"
+private const val CLIENT_NAME = "VProxies Android 0.3.1"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -536,11 +536,19 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         }
         if (connection.username.isNotBlank()) proxy.put("username", connection.username)
         if (connection.password.isNotBlank() && protocol != "socks4") proxy.put("password", connection.password)
-        if (!connection.host.matches(Regex("^[0-9a-fA-F:.]+$"))) proxy.put("domain_resolver", "dns-local")
+        if (!connection.host.matches(Regex("^[0-9a-fA-F:.]+$"))) proxy.put("domain_resolver", "dns-direct")
 
         val direct = JSONObject().put("type", "direct").put("tag", "direct")
         val block = JSONObject().put("type", "block").put("tag", "block")
-        val dnsServers = JSONArray().put(JSONObject().put("type", "local").put("tag", "dns-local"))
+        // Do not use Android's local resolver from inside the TUN. Once the VPN owns
+        // the default route that resolver can call back into the TUN and leave Chrome
+        // at DNS_PROBE_STARTED forever. An IP-literal DoH endpoint needs no bootstrap
+        // lookup and its traffic is explicitly routed outside the proxy below.
+        val dnsServers = JSONArray().put(
+            JSONObject().put("type", "https").put("tag", "dns-direct")
+                .put("server", "1.1.1.1").put("server_port", 443).put("path", "/dns-query")
+                .put("tls", JSONObject().put("enabled", true).put("server_name", "cloudflare-dns.com")),
+        )
         if (dnsThroughProxy) {
             dnsServers.put(
                 JSONObject().put("type", "https").put("tag", "dns-proxy")
@@ -551,6 +559,10 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         }
         val routeRules = JSONArray()
             .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+            .put(
+                JSONObject().put("ip_cidr", JSONArray().put("1.1.1.1/32"))
+                    .put("action", "route").put("outbound", "direct"),
+            )
             .put(JSONObject().put("ip_is_private", true).put("action", "route").put("outbound", "direct"))
         if (routingMode == 1) {
             routeRules.put(
@@ -565,7 +577,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                 "dns",
                 JSONObject()
                     .put("servers", dnsServers)
-                    .put("final", if (dnsThroughProxy) "dns-proxy" else "dns-local"),
+                    .put("final", if (dnsThroughProxy) "dns-proxy" else "dns-direct"),
             )
             .put(
                 "inbounds",
@@ -580,7 +592,7 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
             .put(
                 "route",
                 JSONObject().put("rules", routeRules).put("final", finalOutbound)
-                    .put("auto_detect_interface", true).put("default_domain_resolver", "dns-local"),
+                    .put("auto_detect_interface", true).put("default_domain_resolver", "dns-direct"),
             ).toString(2)
     }
 

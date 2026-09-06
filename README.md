@@ -15,8 +15,8 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Offers DNS-through-proxy (off by default), DNS hijacking and strict routing to prevent leaks.
 - Requests short-lived direct connection data from `/connections`.
 - Creates an Android TUN with `VpnService`; Wintun is not included because it is Windows-only.
-- Uses local DNS by default. DNS-through-proxy is intentionally off because it caused slow HTTPS/
-  SOCKS5 startup and bootstrap failures in earlier Windows testing.
+- Uses direct IP-literal DoH by default to avoid Android local-resolver loops. DNS-through-proxy is
+  intentionally off because it caused slow HTTPS/SOCKS5 startup and bootstrap failures earlier.
 - Never saves the account password or source-proxy credentials.
 - Binds account/config API requests to the physical Wi-Fi/mobile network so an existing VPN
   tunnel cannot trap API DNS during reconnect.
