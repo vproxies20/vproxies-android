@@ -13,6 +13,7 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Includes a separate manual-proxy connection form with optional credentials and HTTPS SNI.
 - Supports full-system, web-rules-only and selected-app routing modes.
 - Offers DNS-through-proxy (off by default), DNS hijacking and strict routing to prevent leaks.
+- Preserves Android Private DNS by routing encrypted DNS-over-TLS (TCP/853) directly.
 - Requests short-lived direct connection data from `/connections`.
 - Creates an Android TUN with `VpnService`; Wintun is not included because it is Windows-only.
 - Uses direct IP-literal DoH by default to avoid Android local-resolver loops. DNS-through-proxy is
@@ -22,6 +23,7 @@ It connects directly to the selected source proxy through Android `VpnService` a
   tunnel cannot trap API DNS during reconnect.
 - Uses the VProxies mark and cyan/violet branding from `vproxies.app`.
 - Reports the real sing-box service state and startup errors in the VProxies screen.
+- Runs an in-tunnel DNS/HTTPS check after startup instead of silently showing a connected state.
 - GitHub Actions builds separate ARM64, ARM32, x86_64 and x86 APKs from pinned upstream source.
 
 ## Build

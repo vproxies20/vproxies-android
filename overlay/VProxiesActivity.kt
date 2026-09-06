@@ -38,6 +38,7 @@ import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
 import io.nekohasekai.sfa.database.TypedProfile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -50,7 +51,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.3.1"
+private const val CLIENT_NAME = "VProxies Android 0.3.2"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -122,7 +123,10 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         runOnUiThread {
             when (status) {
                 Status.Starting -> setStatus("Đang khởi động VPN…")
-                Status.Started -> setStatus("VPN đã kết nối.")
+                Status.Started -> {
+                    setStatus("VPN đã kết nối. Đang kiểm tra Internet…")
+                    verifyTunnelInternet()
+                }
                 Status.Stopping -> setStatus("Đang ngắt VPN…")
                 Status.Stopped -> if (previous != Status.Stopped) setStatus("VPN đã ngắt.")
             }
@@ -505,6 +509,38 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         setStatus("Đã yêu cầu ngắt kết nối.")
     }
 
+    private fun verifyTunnelInternet() {
+        lifecycleScope.launch {
+            delay(1_500)
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val test = URL("https://www.cloudflare.com/cdn-cgi/trace").openConnection() as HttpURLConnection
+                    try {
+                        test.instanceFollowRedirects = true
+                        test.connectTimeout = 10_000
+                        test.readTimeout = 10_000
+                        test.setRequestProperty("Cache-Control", "no-cache")
+                        test.responseCode
+                    } finally {
+                        test.disconnect()
+                    }
+                }
+            }
+            if (coreStatus != Status.Started) return@launch
+            result.onSuccess { status ->
+                if (status in 200..399) setStatus("VPN và Internet đang hoạt động.")
+                else setStatus("VPN đã bật nhưng kiểm tra Internet trả HTTP $status.", true)
+            }.onFailure { error ->
+                val reason = if (error is UnknownHostException) {
+                    "DNS trong VPN chưa phân giải được tên miền."
+                } else {
+                    error.message ?: "không nhận được phản hồi"
+                }
+                setStatus("VPN đã bật nhưng chưa truy cập được Internet: $reason", true)
+            }
+        }
+    }
+
     private fun buildConfig(
         connection: ConnectionInfo,
         protocol: String,
@@ -559,6 +595,13 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         }
         val routeRules = JSONArray()
             .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+            // Android Private DNS uses encrypted DNS-over-TLS on TCP/853. Many
+            // HTTP/SOCKS proxies block that port, so preserve the user's system
+            // resolver by routing DoT directly instead of trapping it in the proxy.
+            .put(
+                JSONObject().put("network", "tcp").put("port", 853)
+                    .put("action", "route").put("outbound", "direct"),
+            )
             .put(
                 JSONObject().put("ip_cidr", JSONArray().put("1.1.1.1/32"))
                     .put("action", "route").put("outbound", "direct"),
