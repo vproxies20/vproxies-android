@@ -33,6 +33,8 @@ It connects directly to the selected source proxy through Android `VpnService` a
   ambiguous in-app disconnect while Android owns the Always-on lifecycle.
 - Checks GitHub Releases at startup and on demand, selects the correct device ABI, downloads over
   the physical network, verifies GitHub's SHA-256 asset digest and opens the Android installer.
+- Disables and removes access to the inherited sing-box/SagerNet update screen, so update notices
+  can only come from the VProxies GitHub repository.
 - GitHub Actions builds separate ARM64, ARM32, x86_64 and x86 APKs from pinned upstream source.
 
 ## Build

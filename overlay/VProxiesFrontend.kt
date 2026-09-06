@@ -170,7 +170,6 @@ internal data class VProxiesActions(
     val proxy: (Int) -> Unit,
     val protocol: (Int) -> Unit,
     val selectApps: () -> Unit,
-    val advanced: () -> Unit,
     val checkManual: () -> Unit,
     val connectManual: () -> Unit,
     val alwaysOn: () -> Unit,
@@ -537,8 +536,7 @@ private fun SettingsScreen(state: VProxiesUiState, actions: VProxiesActions) {
                     actions.installUpdate,
                 )
             }
-            SecondaryButton("Core & service settings", Icons.Default.Settings, actions.advanced)
-            Text("VProxies 0.5.0 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
+            Text("VProxies 0.5.1 · sing-box 1.13.20", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp))
         }
         Spacer(Modifier.height(28.dp))
     }

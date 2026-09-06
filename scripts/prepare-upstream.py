@@ -72,10 +72,6 @@ def main() -> None:
         '            android:name=".vproxies.VProxiesAppPickerActivity"\n'
         '            android:exported="false"\n'
         '            android:theme="@style/AppTheme" />\n\n'
-        '        <activity\n'
-        '            android:name=".compose.MainActivity"\n'
-        '            android:exported="false"\n'
-        '            android:theme="@style/AppTheme" />\n\n'
         "    </application>",
     )
     manifest = client / "app/src/main/AndroidManifest.xml"
@@ -103,7 +99,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=10\nVERSION_NAME=0.5.0\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=11\nVERSION_NAME=0.5.1\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 

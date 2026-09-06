@@ -30,7 +30,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.sfa.bg.BoxService
 import io.nekohasekai.sfa.bg.ServiceConnection
-import io.nekohasekai.sfa.compose.MainActivity
 import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.ServiceMode
 import io.nekohasekai.sfa.constant.Status
@@ -52,7 +51,7 @@ import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.5.0"
+private const val CLIENT_NAME = "VProxies Android 0.5.1"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
@@ -124,6 +123,10 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         api = ApiClient(getSystemService(ConnectivityManager::class.java))
         secureStore = VProxiesSecureStore(this)
         updater = VProxiesUpdater(this)
+        // Disable the inherited sing-box/SagerNet update channel. VProxies
+        // checks only releases published by vproxies20/vproxies-android.
+        Settings.checkUpdateEnabled = false
+        Settings.updateCheckPrompted = true
         coreConnection = ServiceConnection(this, this)
         coreConnection.connect()
         title = "VProxies"
@@ -279,9 +282,6 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
         statusLabel.setPadding(0, dp(12), 0, dp(12))
         page.addView(statusLabel)
 
-        page.addView(button("Cài đặt nâng cao / chọn ứng dụng") {
-            startActivity(Intent(this, MainActivity::class.java))
-        })
         page.addView(text("DNS qua proxy mặc định tắt để tăng tốc và tránh lỗi bootstrap DNS.", 12f, Color.rgb(126, 139, 165)))
 
         gatewaySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -333,7 +333,6 @@ class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
                         protocolSpinner.setSelection(position)
                     },
                     selectApps = { startActivity(Intent(this, VProxiesAppPickerActivity::class.java)) },
-                    advanced = { startActivity(Intent(this, MainActivity::class.java)) },
                     checkManual = { syncInputsFromFrontend(); checkManualProxy() },
                     connectManual = { syncInputsFromFrontend(); connectManual() },
                     alwaysOn = { openAlwaysOnSettings() },
