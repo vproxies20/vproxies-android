@@ -73,7 +73,7 @@ jobs:
           retention-days: 1
 
   build-apk:
-    name: Build universal APK
+    name: Build split APKs
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: build-libbox
@@ -129,19 +129,60 @@ jobs:
         working-directory: sing-box/clients/android
         run: ./gradlew --build-cache --parallel :app:assembleOtherDebug
 
-      - name: Collect APK and source metadata
+      - name: Collect architecture APKs
         run: |
-          mkdir -p dist
-          apk_path="$(find sing-box/clients/android/app/build/outputs/apk/other/debug -maxdepth 1 -name '*universal*.apk' -print -quit)"
-          test -n "$apk_path"
-          cp "$apk_path" dist/VProxies-0.1.0-universal-debug.apk
-          cp README.md THIRD-PARTY-NOTICES.md dist/
-          printf '%s\n' "$SING_BOX_COMMIT" > dist/SING_BOX_COMMIT.txt
+          output_dir="sing-box/clients/android/app/build/outputs/apk/other/debug"
+          mkdir -p dist/arm64-v8a dist/armeabi-v7a dist/x86_64 dist/x86
+          while IFS= read -r apk_path; do
+            case "$(basename "$apk_path")" in
+              *arm64-v8a*) target="arm64-v8a" ;;
+              *armeabi-v7a*) target="armeabi-v7a" ;;
+              *x86_64*) target="x86_64" ;;
+              *x86*) target="x86" ;;
+              *) continue ;;
+            esac
+            case "$target" in
+              arm64-v8a) output_name="VProxies-ARM64.apk" ;;
+              armeabi-v7a) output_name="VProxies-ARM32.apk" ;;
+              x86_64) output_name="VProxies-x86_64.apk" ;;
+              x86) output_name="VProxies-x86.apk" ;;
+            esac
+            cp "$apk_path" "dist/$target/$output_name"
+          done < <(find "$output_dir" -maxdepth 1 -type f -name '*.apk' -print)
+          for target in arm64-v8a armeabi-v7a x86_64 x86; do
+            test "$(find "dist/$target" -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 1
+            cp README.md THIRD-PARTY-NOTICES.md "dist/$target/"
+            printf '%s\n' "$SING_BOX_COMMIT" > "dist/$target/SING_BOX_COMMIT.txt"
+          done
 
-      - name: Upload VProxies APK
+      - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
         with:
-          name: VProxies-Android-APK
-          path: dist
+          name: 1-VProxies-ARM64-Dien-thoai-hien-nay
+          path: dist/arm64-v8a
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload ARM32 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 2-VProxies-ARM32-Dien-thoai-cu
+          path: dist/armeabi-v7a
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3-VProxies-x86_64-Emulator
+          path: dist/x86_64
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload x86 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: 3-VProxies-x86-Emulator
+          path: dist/x86
           if-no-files-found: error
           retention-days: 14

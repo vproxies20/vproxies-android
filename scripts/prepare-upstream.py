@@ -30,6 +30,9 @@ def main() -> None:
     activity_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesActivity.kt"
     activity_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(activity_src, activity_dst)
+    logo_src = overlay / "ic_vproxies_logo.xml"
+    logo_dst = client / "app/src/main/res/drawable/ic_vproxies_logo.xml"
+    shutil.copy2(logo_src, logo_dst)
 
     replace_once(
         client / "app/build.gradle.kts",
@@ -43,6 +46,11 @@ def main() -> None:
     )
     replace_once(
         client / "app/build.gradle.kts",
+        "isUniversalApk = true",
+        "isUniversalApk = false",
+    )
+    replace_once(
+        client / "app/build.gradle.kts",
         'base.archivesName.set("SFA-${versionName}")',
         'base.archivesName.set("VProxies-${versionName}")',
     )
@@ -50,6 +58,20 @@ def main() -> None:
         client / "app/src/main/AndroidManifest.xml",
         'android:name=".compose.MainActivity"',
         'android:name=".vproxies.VProxiesActivity"',
+    )
+    manifest = client / "app/src/main/AndroidManifest.xml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace(
+            '@mipmap/ic_launcher',
+            '@drawable/ic_vproxies_logo',
+        ),
+        encoding="utf-8",
+    )
+    replace_once(
+        client / "app/src/main/AndroidManifest.xml",
+        '<uses-permission android:name="android.permission.INTERNET" />',
+        '<uses-permission android:name="android.permission.INTERNET" />\n'
+        '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
     )
 
     for strings in (client / "app/src/main/res").glob("values*/strings.xml"):
@@ -61,7 +83,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=1\nVERSION_NAME=0.1.0\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=2\nVERSION_NAME=0.2.0\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 
