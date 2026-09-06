@@ -22,7 +22,7 @@ It connects directly to the selected source proxy through Android `VpnService` a
 Open **Actions → Build VProxies Android APK → Run workflow**. The result is uploaded as the
 `VProxies-Android-APK` artifact.
 
-The workflow pins sing-box commit `60b504a1c74a33fe24872c8144c8f0b7d3d61b2a`, applies the files in
+The workflow pins the sing-box v1.13.20 commit `56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778`, applies the files in
 `overlay/`, builds the official Android `libbox` AARs, then builds the rebranded APK.
 
 ## Licensing
