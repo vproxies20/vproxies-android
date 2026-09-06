@@ -1,0 +1,144 @@
+name: Build VProxies Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "overlay/**"
+      - "scripts/**"
+      - ".github/workflows/build-android.yml"
+
+permissions:
+  contents: read
+
+env:
+  SING_BOX_COMMIT: 60b504a1c74a33fe24872c8144c8f0b7d3d61b2a
+
+jobs:
+  build-libbox:
+    name: Build libbox (${{ matrix.go_arch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        go_arch: ["386", amd64, arm, arm64]
+    steps:
+      - name: Check out VProxies overlay
+        uses: actions/checkout@v4
+
+      - name: Check out pinned sing-box source
+        run: |
+          git clone --filter=blob:none https://github.com/SagerNet/sing-box.git sing-box
+          cd sing-box
+          git checkout "$SING_BOX_COMMIT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Set up Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build architecture AAR
+        working-directory: sing-box
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go run ./cmd/internal/build_libbox -target android -platform android/${{ matrix.go_arch }}
+          mkdir -p ../libbox-output/${{ matrix.go_arch }}
+          mv libbox.aar libbox-legacy.aar ../libbox-output/${{ matrix.go_arch }}/
+
+      - name: Upload architecture AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: libbox-${{ matrix.go_arch }}
+          path: libbox-output
+          compression-level: 0
+          retention-days: 1
+
+  build-apk:
+    name: Build universal APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build-libbox
+    steps:
+      - name: Check out VProxies overlay
+        uses: actions/checkout@v4
+
+      - name: Check out pinned sing-box and Android client
+        run: |
+          git clone --filter=blob:none https://github.com/SagerNet/sing-box.git sing-box
+          cd sing-box
+          git checkout "$SING_BOX_COMMIT"
+          git submodule update --init clients/android
+
+      - name: Verify pinned Android source
+        run: |
+          test "$(git -C sing-box/clients/android rev-parse HEAD)" = "af61098358a8141dea71f232b7eaebf4ccee8868"
+
+      - name: Apply VProxies overlay
+        run: python3 scripts/prepare-upstream.py sing-box
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: sing-box/go.sum
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Download architecture AARs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: libbox-*
+          path: libbox-inputs
+          merge-multiple: true
+
+      - name: Merge AARs
+        working-directory: sing-box
+        run: |
+          go run ./cmd/internal/merge_aar -output libbox.aar ../libbox-inputs/*/libbox.aar
+          go run ./cmd/internal/merge_aar -output libbox-legacy.aar ../libbox-inputs/*/libbox-legacy.aar
+          mkdir -p clients/android/app/libs
+          cp libbox.aar libbox-legacy.aar clients/android/app/libs/
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        working-directory: sing-box/clients/android
+        run: ./gradlew --build-cache --parallel :app:assembleOtherDebug
+
+      - name: Collect APK and source metadata
+        run: |
+          mkdir -p dist
+          cp sing-box/clients/android/app/build/outputs/apk/other/debug/*.apk dist/VProxies-0.1.0-universal-debug.apk
+          cp README.md THIRD-PARTY-NOTICES.md dist/
+          printf '%s\n' "$SING_BOX_COMMIT" > dist/SING_BOX_COMMIT.txt
+
+      - name: Upload VProxies APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VProxies-Android-APK
+          path: dist
+          if-no-files-found: error
+          retention-days: 14
