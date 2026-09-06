@@ -30,6 +30,9 @@ def main() -> None:
     activity_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesActivity.kt"
     activity_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(activity_src, activity_dst)
+    picker_src = overlay / "VProxiesAppPickerActivity.kt"
+    picker_dst = client / "app/src/main/java/io/nekohasekai/sfa/vproxies/VProxiesAppPickerActivity.kt"
+    shutil.copy2(picker_src, picker_dst)
     logo_src = overlay / "ic_vproxies_logo.xml"
     logo_dst = client / "app/src/main/res/drawable/ic_vproxies_logo.xml"
     shutil.copy2(logo_src, logo_dst)
@@ -59,6 +62,19 @@ def main() -> None:
         'android:name=".compose.MainActivity"',
         'android:name=".vproxies.VProxiesActivity"',
     )
+    replace_once(
+        client / "app/src/main/AndroidManifest.xml",
+        "    </application>",
+        '        <activity\n'
+        '            android:name=".vproxies.VProxiesAppPickerActivity"\n'
+        '            android:exported="false"\n'
+        '            android:theme="@style/AppTheme" />\n\n'
+        '        <activity\n'
+        '            android:name=".compose.MainActivity"\n'
+        '            android:exported="false"\n'
+        '            android:theme="@style/AppTheme" />\n\n'
+        "    </application>",
+    )
     manifest = client / "app/src/main/AndroidManifest.xml"
     manifest.write_text(
         manifest.read_text(encoding="utf-8").replace(
@@ -83,7 +99,7 @@ def main() -> None:
         strings.write_text(text, encoding="utf-8")
 
     (client / "version.properties").write_text(
-        "VERSION_CODE=2\nVERSION_NAME=0.2.0\nGO_VERSION=go1.26.7\n",
+        "VERSION_CODE=3\nVERSION_NAME=0.3.0\nGO_VERSION=go1.26.7\n",
         encoding="utf-8",
     )
 

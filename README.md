@@ -10,6 +10,9 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Loads assigned gateways and proxies.
 - Shows country, city, status, latency and endpoint visibility.
 - Lets the user choose HTTP, HTTPS, SOCKS4 or SOCKS5 when advertised by the selected proxy.
+- Includes a separate manual-proxy connection form with optional credentials and HTTPS SNI.
+- Supports full-system, web-rules-only and selected-app routing modes.
+- Offers DNS-through-proxy (off by default), DNS hijacking and strict routing to prevent leaks.
 - Requests short-lived direct connection data from `/connections`.
 - Creates an Android TUN with `VpnService`; Wintun is not included because it is Windows-only.
 - Uses local DNS by default. DNS-through-proxy is intentionally off because it caused slow HTTPS/
@@ -18,6 +21,7 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Binds account/config API requests to the physical Wi-Fi/mobile network so an existing VPN
   tunnel cannot trap API DNS during reconnect.
 - Uses the VProxies mark and cyan/violet branding from `vproxies.app`.
+- Reports the real sing-box service state and startup errors in the VProxies screen.
 - GitHub Actions builds separate ARM64, ARM32, x86_64 and x86 APKs from pinned upstream source.
 
 ## Build

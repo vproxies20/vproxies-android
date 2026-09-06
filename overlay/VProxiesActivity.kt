@@ -16,6 +16,7 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -27,8 +28,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import io.nekohasekai.sfa.bg.BoxService
+import io.nekohasekai.sfa.bg.ServiceConnection
 import io.nekohasekai.sfa.compose.MainActivity
+import io.nekohasekai.sfa.constant.Alert
 import io.nekohasekai.sfa.constant.ServiceMode
+import io.nekohasekai.sfa.constant.Status
 import io.nekohasekai.sfa.database.Profile
 import io.nekohasekai.sfa.database.ProfileManager
 import io.nekohasekai.sfa.database.Settings
@@ -40,17 +44,19 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.UnknownHostException
 import java.net.URL
 
 private const val API_BASE_URL = "https://api.vproxies.app/api/v1/"
-private const val CLIENT_NAME = "VProxies Android 0.2.0"
+private const val CLIENT_NAME = "VProxies Android 0.3.0"
 
 /**
  * VProxies clean UI layered on the official Android libbox/VpnService implementation.
  * Account passwords and source proxy credentials are intentionally never persisted.
  */
-class VProxiesActivity : AppCompatActivity() {
+class VProxiesActivity : AppCompatActivity(), ServiceConnection.Callback {
     companion object {
         private const val PREFS = "vproxies"
         private const val PROFILE_ID = "managed_profile_id"
@@ -62,6 +68,8 @@ class VProxiesActivity : AppCompatActivity() {
     private val proxies = mutableListOf<ProxyItem>()
     private var pendingConfig: String? = null
     private var credentialFile: File? = null
+    private lateinit var coreConnection: ServiceConnection
+    private var coreStatus = Status.Stopped
 
     private lateinit var identityInput: EditText
     private lateinit var passwordInput: EditText
@@ -69,11 +77,21 @@ class VProxiesActivity : AppCompatActivity() {
     private lateinit var gatewaySpinner: Spinner
     private lateinit var proxySpinner: Spinner
     private lateinit var protocolSpinner: Spinner
+    private lateinit var routingSpinner: Spinner
+    private lateinit var selectAppsButton: Button
+    private lateinit var dnsThroughProxyBox: CheckBox
+    private lateinit var preventDnsLeaksBox: CheckBox
     private lateinit var connectButton: Button
     private lateinit var stopButton: Button
     private lateinit var accountLabel: TextView
     private lateinit var proxyDetailLabel: TextView
     private lateinit var statusLabel: TextView
+    private lateinit var manualProtocolSpinner: Spinner
+    private lateinit var manualHostInput: EditText
+    private lateinit var manualPortInput: EditText
+    private lateinit var manualUsernameInput: EditText
+    private lateinit var manualPasswordInput: EditText
+    private lateinit var manualSniInput: EditText
 
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -86,9 +104,37 @@ class VProxiesActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         api = ApiClient(getSystemService(ConnectivityManager::class.java))
+        coreConnection = ServiceConnection(this, this)
+        coreConnection.connect()
         title = "VProxies"
         buildInterface()
         identityInput.setText(getSharedPreferences(PREFS, MODE_PRIVATE).getString("identity", ""))
+    }
+
+    override fun onDestroy() {
+        coreConnection.disconnect()
+        super.onDestroy()
+    }
+
+    override fun onServiceStatusChanged(status: Status) {
+        val previous = coreStatus
+        coreStatus = status
+        runOnUiThread {
+            when (status) {
+                Status.Starting -> setStatus("Đang khởi động VPN…")
+                Status.Started -> setStatus("VPN đã kết nối.")
+                Status.Stopping -> setStatus("Đang ngắt VPN…")
+                Status.Stopped -> if (previous != Status.Stopped) setStatus("VPN đã ngắt.")
+            }
+        }
+    }
+
+    override fun onServiceAlert(type: Alert, message: String?) {
+        runOnUiThread {
+            credentialFile?.delete()
+            credentialFile = null
+            setStatus("Lỗi VPN: ${message?.takeIf(String::isNotBlank) ?: type.name}", true)
+        }
     }
 
     private fun buildInterface() {
@@ -124,6 +170,31 @@ class VProxiesActivity : AppCompatActivity() {
         page.addView(accountLabel)
         page.addView(space(22))
 
+        page.addView(section("ĐỊNH TUYẾN"))
+        page.addView(label("Chế độ lưu lượng"))
+        routingSpinner = spinner().apply {
+            adapter = adapter(listOf("Toàn hệ thống", "Chỉ web theo quy tắc", "Các ứng dụng đã chọn"))
+        }
+        selectAppsButton = button("Chọn ứng dụng") {
+            startActivity(Intent(this, VProxiesAppPickerActivity::class.java))
+        }.apply { visibility = View.GONE }
+        dnsThroughProxyBox = CheckBox(this).apply {
+            text = "DNS qua proxy"
+            setTextColor(Color.rgb(184, 196, 220))
+            isChecked = false
+        }
+        preventDnsLeaksBox = CheckBox(this).apply {
+            text = "Chống rò rỉ DNS"
+            setTextColor(Color.rgb(184, 196, 220))
+            isChecked = true
+        }
+        page.addView(routingSpinner)
+        page.addView(selectAppsButton)
+        page.addView(dnsThroughProxyBox)
+        page.addView(preventDnsLeaksBox)
+        page.addView(text("Chế độ quy tắc chỉ đưa lưu lượng web TCP 80/443 qua proxy; lưu lượng khác đi trực tiếp.", 12f, Color.rgb(126, 139, 165)))
+        page.addView(space(22))
+
         page.addView(section("Proxy được cấp"))
         gatewaySpinner = spinner()
         proxySpinner = spinner()
@@ -142,6 +213,28 @@ class VProxiesActivity : AppCompatActivity() {
         stopButton = button("Ngắt kết nối") { stopCore() }
         page.addView(connectButton)
         page.addView(stopButton)
+
+        page.addView(space(24))
+        page.addView(section("Kết nối proxy riêng"))
+        page.addView(text("Chỉ nhập proxy bạn quản lý hoặc được phép sử dụng. Thông tin xác thực không được lưu.", 12f, Color.rgb(126, 139, 165)))
+        manualProtocolSpinner = spinner().apply {
+            adapter = adapter(listOf("HTTP", "HTTPS", "SOCKS4", "SOCKS5"))
+            setSelection(3)
+        }
+        manualHostInput = input("Host hoặc IP", false)
+        manualPortInput = input("Port", false).apply { inputType = InputType.TYPE_CLASS_NUMBER }
+        manualUsernameInput = input("Username proxy (nếu có)", false)
+        manualPasswordInput = input("Password proxy (nếu có)", true)
+        manualSniInput = input("HTTPS SNI (tùy chọn)", false)
+        page.addView(label("Giao thức"))
+        page.addView(manualProtocolSpinner)
+        page.addView(manualHostInput)
+        page.addView(manualPortInput)
+        page.addView(manualUsernameInput)
+        page.addView(manualPasswordInput)
+        page.addView(manualSniInput)
+        page.addView(button("Kiểm tra proxy") { checkManualProxy() })
+        page.addView(button("Kết nối proxy riêng") { connectManual() })
 
         statusLabel = text("Sẵn sàng", 14f, Color.rgb(126, 231, 166), Typeface.BOLD)
         statusLabel.gravity = Gravity.CENTER_HORIZONTAL
@@ -162,6 +255,12 @@ class VProxiesActivity : AppCompatActivity() {
         proxySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 updateProxySelection(position)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        routingSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectAppsButton.visibility = if (position == 2) View.VISIBLE else View.GONE
             }
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
@@ -247,6 +346,7 @@ class VProxiesActivity : AppCompatActivity() {
         val gateway = gateways[gatewayPosition]
         val proxy = proxies[proxyPosition]
         val protocol = protocolSpinner.selectedItem?.toString()?.lowercase() ?: proxy.protocol.lowercase()
+        val routingMode = prepareRouting() ?: return
         busy(true, "Đang xin thông tin kết nối…")
         lifecycleScope.launch {
             runCatching {
@@ -256,7 +356,14 @@ class VProxiesActivity : AppCompatActivity() {
                 if (connection.protocols.isNotEmpty() && protocol !in connection.protocols.map { it.lowercase() }) {
                     error("Proxy không còn hỗ trợ giao thức ${protocol.uppercase()}.")
                 }
-                val config = buildConfig(connection, protocol)
+                val config = buildConfig(
+                    connection,
+                    protocol,
+                    routingMode,
+                    dnsThroughProxyBox.isChecked,
+                    preventDnsLeaksBox.isChecked,
+                    upstreamTls = false,
+                )
                 installProfile(proxy.display, config)
                 pendingConfig = config
             }.onSuccess {
@@ -264,6 +371,81 @@ class VProxiesActivity : AppCompatActivity() {
             }.onFailure {
                 setStatus(it.message ?: "Không thể chuẩn bị kết nối.", true)
             }
+            busy(false)
+        }
+    }
+
+    private fun prepareRouting(): Int? {
+        val routingMode = routingSpinner.selectedItemPosition.coerceIn(0, 2)
+        if (routingMode == 2 && Settings.perAppProxyList.isEmpty()) {
+            setStatus("Hãy chọn ít nhất một ứng dụng cho chế độ này.", true)
+            return null
+        }
+        Settings.perAppProxyEnabled = routingMode == 2
+        Settings.perAppProxyMode = Settings.PER_APP_PROXY_INCLUDE
+        return routingMode
+    }
+
+    private fun manualConnection(): ConnectionInfo {
+        val host = manualHostInput.text.toString().trim()
+        val port = manualPortInput.text.toString().toIntOrNull() ?: 0
+        if (host.isBlank() || port !in 1..65535) error("Hãy nhập host/IP và port proxy hợp lệ.")
+        return ConnectionInfo(
+            host = host,
+            port = port,
+            username = manualUsernameInput.text.toString(),
+            password = manualPasswordInput.text.toString(),
+            protocol = manualProtocolSpinner.selectedItem.toString().lowercase(),
+            protocols = listOf(manualProtocolSpinner.selectedItem.toString().lowercase()),
+            expiresAt = null,
+        )
+    }
+
+    private fun checkManualProxy() {
+        val connection = runCatching { manualConnection() }.getOrElse {
+            setStatus(it.message ?: "Thông tin proxy không hợp lệ.", true)
+            return
+        }
+        busy(true, "Đang kiểm tra cổng proxy…")
+        lifecycleScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    Socket().use { it.connect(InetSocketAddress(connection.host, connection.port), 8_000) }
+                }
+            }.onSuccess {
+                setStatus("Đã kết nối được tới cổng proxy. Username/password sẽ được kiểm tra khi bật VPN.")
+            }.onFailure {
+                setStatus("Không kết nối được tới proxy: ${it.message ?: "hết thời gian chờ"}", true)
+            }
+            busy(false)
+        }
+    }
+
+    private fun connectManual() {
+        val connection = runCatching { manualConnection() }.getOrElse {
+            setStatus(it.message ?: "Thông tin proxy không hợp lệ.", true)
+            return
+        }
+        val routingMode = prepareRouting() ?: return
+        busy(true, "Đang chuẩn bị proxy riêng…")
+        lifecycleScope.launch {
+            runCatching {
+                val config = buildConfig(
+                    connection,
+                    connection.protocol,
+                    routingMode,
+                    dnsThroughProxyBox.isChecked,
+                    preventDnsLeaksBox.isChecked,
+                    upstreamTls = connection.protocol == "https",
+                    tlsServerName = manualSniInput.text.toString().trim(),
+                )
+                installProfile("Proxy riêng · ${connection.protocol.uppercase()}", config)
+                pendingConfig = config
+            }.onSuccess {
+                manualPasswordInput.text.clear()
+                requestNotificationThenVpn()
+            }
+                .onFailure { setStatus(it.message ?: "Không thể chuẩn bị proxy riêng.", true) }
             busy(false)
         }
     }
@@ -312,7 +494,7 @@ class VProxiesActivity : AppCompatActivity() {
         if (pendingConfig == null) return
         BoxService.start()
         pendingConfig = null
-        setStatus("Đã yêu cầu kết nối. Kiểm tra biểu tượng VPN trên thanh trạng thái.")
+        setStatus("Đang khởi động VPN…")
     }
 
     private fun stopCore() {
@@ -323,7 +505,15 @@ class VProxiesActivity : AppCompatActivity() {
         setStatus("Đã yêu cầu ngắt kết nối.")
     }
 
-    private fun buildConfig(connection: ConnectionInfo, protocol: String): String {
+    private fun buildConfig(
+        connection: ConnectionInfo,
+        protocol: String,
+        routingMode: Int,
+        dnsThroughProxy: Boolean,
+        preventDnsLeaks: Boolean,
+        upstreamTls: Boolean,
+        tlsServerName: String = "",
+    ): String {
         val proxy = JSONObject().put("tag", "proxy")
             .put("server", connection.host)
             .put("server_port", connection.port)
@@ -332,7 +522,16 @@ class VProxiesActivity : AppCompatActivity() {
             "socks5" -> proxy.put("type", "socks").put("version", "5")
             // The API's `https` label currently means HTTP CONNECT. It does not
             // declare TLS transport to the upstream proxy, so never infer TLS here.
-            "https" -> proxy.put("type", "http")
+            "https" -> {
+                proxy.put("type", "http")
+                if (upstreamTls) {
+                    proxy.put(
+                        "tls",
+                        JSONObject().put("enabled", true)
+                            .put("server_name", tlsServerName.ifBlank { connection.host }),
+                    )
+                }
+            }
             else -> proxy.put("type", "http")
         }
         if (connection.username.isNotBlank()) proxy.put("username", connection.username)
@@ -341,27 +540,46 @@ class VProxiesActivity : AppCompatActivity() {
 
         val direct = JSONObject().put("type", "direct").put("tag", "direct")
         val block = JSONObject().put("type", "block").put("tag", "block")
-        val privateRule = JSONObject().put("ip_is_private", true).put("action", "route").put("outbound", "direct")
+        val dnsServers = JSONArray().put(JSONObject().put("type", "local").put("tag", "dns-local"))
+        if (dnsThroughProxy) {
+            dnsServers.put(
+                JSONObject().put("type", "https").put("tag", "dns-proxy")
+                    .put("server", "1.1.1.1").put("server_port", 443).put("path", "/dns-query")
+                    .put("tls", JSONObject().put("enabled", true).put("server_name", "cloudflare-dns.com"))
+                    .put("detour", "proxy"),
+            )
+        }
+        val routeRules = JSONArray()
+            .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns"))
+            .put(JSONObject().put("ip_is_private", true).put("action", "route").put("outbound", "direct"))
+        if (routingMode == 1) {
+            routeRules.put(
+                JSONObject().put("network", "tcp").put("port", JSONArray().put(80).put(443))
+                    .put("action", "route").put("outbound", "proxy"),
+            )
+        }
+        val finalOutbound = if (routingMode == 1) "direct" else "proxy"
         return JSONObject()
             .put("log", JSONObject().put("level", "info").put("timestamp", true))
             .put(
                 "dns",
                 JSONObject()
-                    .put("servers", JSONArray().put(JSONObject().put("type", "local").put("tag", "dns-local")))
-                    .put("final", "dns-local"),
+                    .put("servers", dnsServers)
+                    .put("final", if (dnsThroughProxy) "dns-proxy" else "dns-local"),
             )
             .put(
                 "inbounds",
                 JSONArray().put(
                     JSONObject().put("type", "tun").put("tag", "tun-in")
                         .put("address", JSONArray().put("172.19.0.1/30"))
-                        .put("mtu", 1500).put("auto_route", true).put("stack", "mixed"),
+                        .put("mtu", 1500).put("auto_route", true)
+                        .put("strict_route", preventDnsLeaks).put("stack", "mixed"),
                 ),
             )
             .put("outbounds", JSONArray().put(proxy).put(direct).put(block))
             .put(
                 "route",
-                JSONObject().put("rules", JSONArray().put(privateRule)).put("final", "proxy")
+                JSONObject().put("rules", routeRules).put("final", finalOutbound)
                     .put("auto_detect_interface", true).put("default_domain_resolver", "dns-local"),
             ).toString(2)
     }
