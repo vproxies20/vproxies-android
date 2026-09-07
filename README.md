@@ -36,6 +36,8 @@ It connects directly to the selected source proxy through Android `VpnService` a
 - Disables and removes access to the inherited sing-box/SagerNet update screen, so update notices
   can only come from the VProxies GitHub repository.
 - GitHub Actions builds separate ARM64, ARM32, x86_64 and x86 APKs from pinned upstream source.
+- GitHub Actions also builds one Android App Bundle (`.aab`) for Google Play; Play then generates
+  optimized APKs for each supported device architecture.
 
 ## Build
 
@@ -44,6 +46,11 @@ Open **Actions → Build VProxies Android APK → Run workflow**. Download the c
 1. `1-VProxies-ARM64-Dien-thoai-hien-nay` contains `VProxies-ARM64.apk`.
 2. `2-VProxies-ARM32-Dien-thoai-cu` contains `VProxies-ARM32.apk`.
 3. The two `3-VProxies-x86...-Emulator` artifacts contain the x86 or x86_64 emulator APK.
+4. `4-VProxies-Google-Play-AAB` contains the single App Bundle for Play Console.
+
+When signing secrets are absent, the workflow names the bundle
+`VProxies-Google-Play-TEST-ONLY.aab`; it verifies the build but must not be uploaded to production.
+The production `VProxies-Google-Play.aab` is generated only with the configured VProxies upload key.
 
 The workflow pins the sing-box v1.13.20 commit `56f91dfeabd6f4edbd437dfcc1e5b0ebc856b778`, applies the files in
 `overlay/`, builds the official Android `libbox` AARs, then builds the rebranded APK.
@@ -59,8 +66,8 @@ these GitHub Actions secrets before pushing a `v*` tag:
 - `VPROXIES_KEY_PASSWORD`
 
 The workflow refuses to publish a tagged release when any signing secret is missing. A successful
-tag build publishes all four APKs to GitHub Releases; the in-app updater never uses expiring Actions
-artifacts.
+tag build publishes all four APKs and the signed Google Play App Bundle to GitHub Releases; the
+in-app updater never uses expiring Actions artifacts.
 
 ## Licensing
 
